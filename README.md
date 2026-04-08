@@ -42,6 +42,98 @@
 
 \[ English | [中文](README_zh.md) \]
 
+---
+
+## CDS547 Course Fork (CDS547LLM_LoRA)
+
+This repository is a course fork of [hiyouga/LLaMA-Factory](https://github.com/hiyouga/LLaMA-Factory) for experimenting with parameter-efficient fine-tuning (LoRA) on medical pathology reports (TCGA-Reports).
+
+- **Goal**: domain-adaptive pretraining (DAPT) on TCGA pathology report text, then **cancer-type classification** (32 TCGA project codes).
+- **Hardware**: Apple Silicon (MPS). QLoRA via bitsandbytes is typically CUDA-oriented; this fork focuses on **LoRA on MPS** for local experiments.
+- **Data policy**: large datasets and training outputs are kept **local** and ignored by git.
+
+### Local Setup (Conda, isolated)
+
+```bash
+conda create -y -n llamafactory-mps python=3.11
+conda run -n llamafactory-mps python -m pip install -U pip
+conda run -n llamafactory-mps python -m pip install -e .
+conda run -n llamafactory-mps python -m pip install wandb
+conda run -n llamafactory-mps env PYTHONNOUSERSITE=1 wandb login
+```
+
+### Data (TCGA-Reports)
+
+Download **TCGA_Reports.csv.zip** from Mendeley Data (TCGA-Reports), unzip it to obtain `TCGA_Reports.csv`.
+
+This fork expects two local files (not committed to git):
+- `TCGA_Reports.csv` (columns: `patient_filename`, `text`)
+- `tcga_patient_to_cancer_type.csv` (columns: `patient_id`, `cancer_type`)
+
+Generate local training files under `data/`:
+
+```bash
+cd /path/to/LLaMA-Factory
+conda run -n llamafactory-mps env PYTHONNOUSERSITE=1 python -c "import json,re; import pandas as pd; from pathlib import Path; root=Path('.').resolve().parent; reports=pd.read_csv(root/'TCGA_Reports.csv'); m=pd.read_csv(root/'tcga_patient_to_cancer_type.csv'); reports['patient_id']=reports['patient_filename'].astype(str).str.split('.',n=1).str[0]; merged=reports.merge(m,on='patient_id',how='inner'); clean=lambda t: re.sub(r'\\s+',' ', re.sub(r'\\n+','\\n', t.replace('\\r','\\n'))).replace('\\n',' ').strip(); data_dir=Path('data'); data_dir.mkdir(parents=True, exist_ok=True); lines=[c for c in (clean(t) for t in merged['text'].astype(str).tolist()) if c]; (data_dir/'tcga_reports.txt').write_text('\\n'.join(lines)+'\\n', encoding='utf-8'); instr='Read the pathology report and classify the cancer type as one of the TCGA project codes. Output only the cancer type code (e.g., BRCA, LUAD). Do not output any other text.'; rec=[{'system':'You are a medical NLP assistant specialized in pathology reports.','instruction':instr,'input':str(r['text']),'output':str(r['cancer_type'])} for _,r in merged.iterrows()]; json.dump(rec, open(data_dir/'tcga_cancer_type_alpaca.json','w',encoding='utf-8'), ensure_ascii=False); print('wrote', len(lines), 'lines and', len(rec), 'records')"
+```
+
+### Training (MPS-safe settings + W&B)
+
+Run inside the `LLaMA-Factory/` directory.
+
+**DAPT (LoRA, TCGA report text)**:
+
+```bash
+WANDB_PROJECT=CDS527LLM WANDB_NAME=dapt-tcga-qwen3-0.6b-mps \
+WANDB_DIR="$(pwd)/wandb_runs" WANDB_CACHE_DIR="$(pwd)/wandb_cache" WANDB_CONFIG_DIR="$(pwd)/wandb_config" \
+ACCELERATE_USE_MPS_DEVICE=true PYTORCH_ENABLE_MPS_FALLBACK=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 \
+conda run -n llamafactory-mps env PYTHONNOUSERSITE=1 \
+llamafactory-cli train examples/train_lora/qwen3_lora_pretrain.yaml \
+  model_name_or_path=Qwen/Qwen3-0.6B dataset=tcga_reports cutoff_len=512 max_samples=9523 \
+  preprocessing_num_workers=1 dataloader_num_workers=0 bf16=false per_device_train_batch_size=1 gradient_accumulation_steps=2 \
+  learning_rate=1.0e-4 max_steps=500 save_steps=100 logging_steps=5 report_to=wandb plot_loss=false overwrite_output_dir=true \
+  output_dir=saves/qwen3-0.6b/lora/pt_tcga_mps
+```
+
+**Cancer-type classification (LoRA SFT, initialize from DAPT adapter)**:
+
+```bash
+WANDB_PROJECT=CDS527LLM WANDB_NAME=cls-tcga-qwen3-0.6b-mps \
+WANDB_DIR="$(pwd)/wandb_runs" WANDB_CACHE_DIR="$(pwd)/wandb_cache" WANDB_CONFIG_DIR="$(pwd)/wandb_config" \
+ACCELERATE_USE_MPS_DEVICE=true PYTORCH_ENABLE_MPS_FALLBACK=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 \
+conda run -n llamafactory-mps env PYTHONNOUSERSITE=1 \
+llamafactory-cli train examples/train_lora/qwen3_lora_sft.yaml \
+  model_name_or_path=Qwen/Qwen3-0.6B adapter_name_or_path=saves/qwen3-0.6b/lora/pt_tcga_mps \
+  dataset=tcga_cancer_type template=qwen3_nothink cutoff_len=512 max_samples=9523 \
+  preprocessing_num_workers=1 dataloader_num_workers=0 bf16=false per_device_train_batch_size=1 gradient_accumulation_steps=2 \
+  learning_rate=1.0e-4 max_steps=800 save_steps=200 logging_steps=5 report_to=wandb plot_loss=false overwrite_output_dir=true \
+  output_dir=saves/qwen3-0.6b/lora/sft_tcga_cancer_type_mps
+```
+
+### Changes vs Upstream
+
+- Adds local TCGA dataset names (`tcga_reports`, `tcga_cancer_type`) via `data/dataset_info.json`.
+- Adds MPS-friendly training commands and W&B directory isolation examples.
+- Keeps large datasets and training outputs local via `.gitignore`.
+
+### Outputs & How to Use
+
+After training, the LoRA adapter is saved under `output_dir/`, for example:
+- DAPT adapter: `saves/qwen3-0.6b/lora/pt_tcga_mps/`
+- Classification adapter: `saves/qwen3-0.6b/lora/sft_tcga_cancer_type_mps/`
+
+To run inference with the classification adapter:
+
+```bash
+conda run -n llamafactory-mps env PYTHONNOUSERSITE=1 \
+llamafactory-cli chat \
+  --model_name_or_path Qwen/Qwen3-0.6B \
+  --adapter_name_or_path saves/qwen3-0.6b/lora/sft_tcga_cancer_type_mps \
+  --template qwen3_nothink
+```
+
+---
+
 **Fine-tuning a large language model can be easy as...**
 
 https://github.com/user-attachments/assets/3991a3a8-4276-4d30-9cab-4cb0c4b9b99e
@@ -66,29 +158,45 @@ Read technical notes:
 
 ## Table of Contents
 
+- [CDS547 Course Fork (CDS547LLM\_LoRA)](#cds547-course-fork-cds547llm_lora)
+  - [Local Setup (Conda, isolated)](#local-setup-conda-isolated)
+  - [Data (TCGA-Reports)](#data-tcga-reports)
+  - [Training (MPS-safe settings + W\&B)](#training-mps-safe-settings--wb)
+  - [Changes vs Upstream](#changes-vs-upstream)
+  - [Outputs \& How to Use](#outputs--how-to-use)
+- [Table of Contents](#table-of-contents)
 - [Features](#features)
+  - [Day-N Support for Fine-Tuning Cutting-Edge Models](#day-n-support-for-fine-tuning-cutting-edge-models)
 - [Blogs](#blogs)
 - [Changelog](#changelog)
 - [Supported Models](#supported-models)
 - [Supported Training Approaches](#supported-training-approaches)
 - [Provided Datasets](#provided-datasets)
 - [Requirement](#requirement)
+  - [Hardware Requirement](#hardware-requirement)
 - [Getting Started](#getting-started)
   - [Installation](#installation)
+    - [Install from Source](#install-from-source)
+    - [Install from Docker Image](#install-from-docker-image)
+    - [Install PyTorch](#install-pytorch)
+    - [Install BitsAndBytes](#install-bitsandbytes)
+    - [Install Flash Attention-2](#install-flash-attention-2)
+    - [Install BitsAndBytes](#install-bitsandbytes-1)
   - [Data Preparation](#data-preparation)
   - [Quickstart](#quickstart)
-  - [Fine-Tuning with LLaMA Board GUI](#fine-tuning-with-llama-board-gui-powered-by-gradio)
+  - [Fine-Tuning with LLaMA Board GUI (powered by Gradio)](#fine-tuning-with-llama-board-gui-powered-by-gradio)
   - [LLaMA Factory Online](#llama-factory-online)
   - [Build Docker](#build-docker)
   - [Deploy with OpenAI-style API and vLLM](#deploy-with-openai-style-api-and-vllm)
   - [Download from ModelScope Hub](#download-from-modelscope-hub)
   - [Download from Modelers Hub](#download-from-modelers-hub)
-  - [Use W&B Logger](#use-wb-logger)
+  - [Use W\&B Logger](#use-wb-logger)
   - [Use SwanLab Logger](#use-swanlab-logger)
 - [Projects using LLaMA Factory](#projects-using-llama-factory)
 - [License](#license)
 - [Citation](#citation)
 - [Acknowledgement](#acknowledgement)
+- [Star History](#star-history)
 
 ## Features
 
