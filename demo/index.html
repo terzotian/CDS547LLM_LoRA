@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CDS527LLM Demo - TCGA Pathology Report</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 0; padding: 46px 20px; line-height: 1.4; background: #f6f7f8; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .hint { font-size: 12px; color: #5F5D6B; margin-top: 8px; line-height: 1.35; }
+      pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+
+      .modal {
+        width: min(1320px, 100%);
+        margin: 0 auto;
+        background: linear-gradient(180deg, #DCF9E0 0%, #FFFFFF 30.21%);
+        box-shadow: 0px 187px 75px rgba(0, 0, 0, 0.01), 0px 105px 63px rgba(0, 0, 0, 0.05), 0px 47px 47px rgba(0, 0, 0, 0.09), 0px 12px 26px rgba(0, 0, 0, 0.1), 0px 0px 0px rgba(0, 0, 0, 0.1);
+        border-radius: 16px;
+        overflow: hidden;
+      }
+
+      .banner {
+        width: 100%;
+        height: 30px;
+        margin: 0;
+        background: linear-gradient(90deg, rgba(11, 221, 18, 0.18), rgba(80, 120, 255, 0.16));
+        background-size: 100%;
+        background-repeat: no-repeat;
+      }
+
+      .title {
+        font-weight: 700;
+        font-size: 19px;
+        line-height: 24px;
+        text-align: center;
+        color: #2B2B2F;
+        margin: 20px 0 12px 0;
+      }
+
+      .description {
+        max-width: 86%;
+        margin: 0 auto 6px auto;
+        font-weight: 600;
+        font-size: 12px;
+        line-height: 18px;
+        text-align: center;
+        color: #5F5D6B;
+      }
+
+      .row { display: flex; gap: 20px; flex-wrap: wrap; padding: 22px; }
+      .panel { border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 12px; padding: 18px; background: rgba(255,255,255,0.75); flex: 1 1 560px; }
+
+      label { display: block; font-size: 13px; color: #2B2B2F; font-weight: 700; margin-bottom: 6px; }
+      input[type="text"], textarea, select { width: 100%; box-sizing: border-box; padding: 11px 12px; border-radius: 9px; border: 1px solid rgba(0,0,0,0.14); background: #ffffff; color: #2B2B2F; font-size: 13px; }
+      textarea { min-height: 260px; resize: vertical; }
+
+      .tab-container {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        position: relative;
+        padding: 2px;
+        background-color: #ebebec;
+        border-radius: 9px;
+        margin: 8px 0 0 0;
+      }
+
+      .indicator {
+        width: 50%;
+        height: 28px;
+        background: #FFFFFF;
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        z-index: 9;
+        border: 0.5px solid rgba(0, 0, 0, 0.04);
+        box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.12), 0px 3px 1px rgba(0, 0, 0, 0.04);
+        border-radius: 7px;
+        transition: all 0.2s ease-out;
+      }
+
+      .tab {
+        width: 50%;
+        height: 28px;
+        position: relative;
+        z-index: 99;
+        background-color: transparent;
+        border: 0;
+        outline: none;
+        flex: none;
+        align-self: stretch;
+        flex-grow: 1;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 12px;
+        color: #2B2B2F;
+      }
+
+      .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+      .upgrade-btn {
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        width: 215px;
+        height: 40px;
+        background: #0bdd12;
+        box-shadow: 0px 0.5px 0.5px #EFEFEF, 0px 1px 0.5px rgba(239, 239, 239, 0.5);
+        border-radius: 7px;
+        border: 0;
+        outline: none;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        transition: all 0.3s cubic-bezier(0.15, 0.83, 0.66, 1);
+        cursor: pointer;
+      }
+      .upgrade-btn:hover { background-color: #07b90d; }
+      .secondary-btn {
+        height: 40px;
+        padding: 0 14px;
+        border-radius: 7px;
+        border: 1px solid rgba(0,0,0,0.10);
+        background: rgba(255,255,255,0.9);
+        color: #2B2B2F;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="modal">
+      <div class="banner"></div>
+      <div class="title">CDS527LLM LoRA（病理报告理解）</div>
+      <div class="description">
+        通过本地 LLaMA-Factory OpenAI 风格接口 <span class="mono">/v1/chat/completions</span> 调用模型。
+      </div>
+
+      <div class="row">
+        <div class="panel">
+        <label>API Base URL</label>
+        <input id="apiBaseUrl" type="text" value="http://localhost:8000" />
+        <div class="hint">默认端口 8000。启动后端后可访问 <span class="mono">/docs</span> 检查是否可用。</div>
+
+        <label style="margin-top: 12px;">Input Mode</label>
+        <div class="tab-container" id="modeTabs">
+          <button type="button" class="tab tab--1" data-mode="single">单人</button>
+          <button type="button" class="tab tab--2" data-mode="multi">多人</button>
+          <div class="indicator" id="modeIndicator"></div>
+        </div>
+        <select id="inputMode" style="display:none">
+          <option value="single">single</option>
+          <option value="multi">multi</option>
+        </select>
+        <div class="hint">多人模式支持分隔符，例如：<span class="mono">=== Patient 1 ===</span></div>
+
+        <label style="margin-top: 12px;">Pathology Report Text</label>
+        <textarea id="reportText" placeholder="粘贴一段病理报告文本（英文更合适，来自 TCGA-Reports）。"></textarea>
+        <div class="hint" id="exampleHint"></div>
+
+        <div class="btns">
+          <button class="upgrade-btn" id="runBtn">Run</button>
+          <button class="secondary-btn" id="randomBtn">Random TCGA</button>
+          <button class="secondary-btn" id="clearBtn">Clear</button>
+        </div>
+
+        <div class="hint">
+          如果接口需要密钥（设置了 <span class="mono">API_KEY</span>），请在代码中自行加 Authorization header。
+        </div>
+        </div>
+
+        <div class="panel">
+        <label>Model Output</label>
+        <pre id="output" class="mono"></pre>
+        <div class="hint" id="meta"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const outputEl = document.getElementById("output");
+      const metaEl = document.getElementById("meta");
+      const apiBaseUrlEl = document.getElementById("apiBaseUrl");
+      const reportTextEl = document.getElementById("reportText");
+      const inputModeEl = document.getElementById("inputMode");
+      const exampleHintEl = document.getElementById("exampleHint");
+      const modeTabsEl = document.getElementById("modeTabs");
+      const modeIndicatorEl = document.getElementById("modeIndicator");
+
+      const TCGA_CODE_TO_NAME = {
+        ACC: "Adrenocortical Carcinoma",
+        BLCA: "Bladder Urothelial Carcinoma",
+        BRCA: "Breast Invasive Carcinoma",
+        CESC: "Cervical Squamous Cell Carcinoma and Endocervical Adenocarcinoma",
+        CHOL: "Cholangiocarcinoma",
+        COAD: "Colon Adenocarcinoma",
+        DLBC: "Lymphoid Neoplasm Diffuse Large B-cell Lymphoma",
+        ESCA: "Esophageal Carcinoma",
+        GBM: "Glioblastoma Multiforme",
+        HNSC: "Head and Neck Squamous Cell Carcinoma",
+        KICH: "Kidney Chromophobe",
+        KIRC: "Kidney Renal Clear Cell Carcinoma",
+        KIRP: "Kidney Renal Papillary Cell Carcinoma",
+        LAML: "Acute Myeloid Leukemia",
+        LGG: "Brain Lower Grade Glioma",
+        LIHC: "Liver Hepatocellular Carcinoma",
+        LUAD: "Lung Adenocarcinoma",
+        LUSC: "Lung Squamous Cell Carcinoma",
+        MESO: "Mesothelioma",
+        OV: "Ovarian Serous Cystadenocarcinoma",
+        PAAD: "Pancreatic Adenocarcinoma",
+        PCPG: "Pheochromocytoma and Paraganglioma",
+        PRAD: "Prostate Adenocarcinoma",
+        READ: "Rectum Adenocarcinoma",
+        SARC: "Sarcoma",
+        SKCM: "Skin Cutaneous Melanoma",
+        STAD: "Stomach Adenocarcinoma",
+        TGCT: "Testicular Germ Cell Tumors",
+        THCA: "Thyroid Carcinoma",
+        THYM: "Thymoma",
+        UCEC: "Uterine Corpus Endometrial Carcinoma",
+        UCS: "Uterine Carcinosarcoma",
+        UVM: "Uveal Melanoma",
+      };
+
+      function setInputMode(mode) {
+        const v = mode === "multi" ? "multi" : "single";
+        inputModeEl.value = v;
+        modeIndicatorEl.style.left = v === "multi" ? "calc(50% - 2px)" : "2px";
+      }
+
+      modeTabsEl.addEventListener("click", (e) => {
+        const btn = e.target && e.target.closest ? e.target.closest("button[data-mode]") : null;
+        if (!btn) return;
+        setInputMode(btn.dataset.mode);
+      });
+
+      setInputMode(inputModeEl.value || "single");
+
+      function buildMessages(task, reportText) {
+        return [
+          { role: "system", content: "You are a medical NLP assistant specialized in pathology reports." },
+          {
+            role: "user",
+            content:
+              "Read the pathology report and classify the cancer type as one of the TCGA project codes. " +
+              "Output only the cancer type code (e.g., BRCA, LUAD). Do not output any other text.\n\n" +
+              "REPORT:\n" +
+              reportText,
+          },
+        ];
+      }
+
+      function renderMarkdownReport(title, cancerTypeCode, analysis) {
+        const code = String(cancerTypeCode || "").trim();
+        const name = TCGA_CODE_TO_NAME[code] || "unknown";
+        const diag = Array.isArray(analysis?.diagnoses) ? analysis.diagnoses : [];
+        const findings = Array.isArray(analysis?.key_findings) ? analysis.key_findings : [];
+        const quotes = Array.isArray(analysis?.evidence_quotes) ? analysis.evidence_quotes : [];
+        const specimen = analysis?.specimen || "unknown";
+        const grade = analysis?.grade || "unknown";
+        const staging = analysis?.staging || "unknown";
+
+        const lines = [];
+        lines.push(`# ${title}`);
+        lines.push("");
+        lines.push("## Model Prediction");
+        lines.push(`- TCGA code: ${code || "unknown"}`);
+        lines.push(`- Cancer name: ${name}`);
+        lines.push("");
+        lines.push("## Specimen / Procedure");
+        lines.push(`- ${specimen}`);
+        lines.push("");
+        lines.push("## Diagnoses");
+        if (diag.length) {
+          for (const d of diag.slice(0, 6)) lines.push(`- ${d}`);
+        } else {
+          lines.push("- unknown");
+        }
+        lines.push("");
+        lines.push("## Key Findings");
+        if (findings.length) {
+          for (const f of findings.slice(0, 8)) lines.push(`- ${f}`);
+        } else {
+          lines.push("- unknown");
+        }
+        lines.push("");
+        lines.push("## Grade / Staging");
+        lines.push(`- Grade: ${grade}`);
+        lines.push(`- Staging: ${staging}`);
+        lines.push("");
+        lines.push("## Evidence Quotes");
+        if (quotes.length) {
+          for (const q of quotes.slice(0, 8)) lines.push(`- "${String(q).replace(/\"/g, '\\"')}"`);
+        } else {
+          lines.push("- \"unknown\"");
+        }
+        return lines.join("\n");
+      }
+
+      function splitMultiInput(raw) {
+        const text = raw.trim();
+        if (!text) return [];
+        const lines = text.split(/\r?\n/);
+        const blocks = [];
+        let curTitle = "Case 1";
+        let cur = [];
+
+        function push() {
+          const joined = cur.join("\n").trim();
+          if (joined) blocks.push({ title: curTitle, text: joined });
+        }
+
+        for (const line of lines) {
+          const m = line.match(/^={3,}\s*(.+?)\s*={3,}\s*$/);
+          if (m) {
+            push();
+            curTitle = m[1] || `Case ${blocks.length + 1}`;
+            cur = [];
+            continue;
+          }
+          cur.push(line);
+        }
+        push();
+        return blocks;
+      }
+
+      function autoSplitToMulti(raw) {
+        const text = String(raw || "").trim();
+        if (!text) return null;
+        if (/^={3,}.+?={3,}\s*$/m.test(text)) {
+          return null;
+        }
+
+        const normalized = text.replace(/\r/g, "\n");
+        const idxs = [];
+        const re = /(?:^|\n)\s*DIAGNOSIS\s*:/gi;
+        let m;
+        while ((m = re.exec(normalized)) !== null) {
+          idxs.push(m.index === 0 ? 0 : m.index + 1);
+          if (idxs.length >= 6) break;
+        }
+
+        let parts = [];
+        if (idxs.length >= 2) {
+          for (let i = 0; i < idxs.length; i++) {
+            const start = idxs[i];
+            const end = i + 1 < idxs.length ? idxs[i + 1] : normalized.length;
+            const slice = normalized.slice(start, end).trim();
+            if (slice) parts.push(slice);
+          }
+        } else {
+          const rough = normalized.split(/\n{3,}/).map((s) => s.trim()).filter(Boolean);
+          if (rough.length >= 2 && rough.every((s) => s.length >= 200)) {
+            parts = rough.slice(0, 5);
+          } else {
+            parts = [normalized];
+          }
+        }
+
+        if (parts.length <= 1) return null;
+
+        return parts
+          .map((p, i) => `=== Patient ${i + 1} ===\n${p}`)
+          .join("\n\n");
+      }
+
+      function extractAnalysisFromText(reportText) {
+        const text = String(reportText || "");
+        const compact = text.replace(/\r/g, "\n");
+
+        const diagnosisMatch = compact.match(/(?:^|\n)\s*DIAGNOSIS\s*:\s*([\s\S]*?)(?:\n\s*(?:GROSS DESCRIPTION|Gross Description|MACROSCOPIC|Macroscopic|MICROSCOPIC|Microscopic|COMMENT|Comment)\s*:|\n\s*Material\s*:|$)/i);
+        const diagnosisBlock = (diagnosisMatch ? diagnosisMatch[1] : "").replace(/\s+/g, " ").trim();
+
+        const specimenMatch =
+          compact.match(/Specimens Submitted\s*:\s*([^\n]+)\n?/i) ||
+          compact.match(/Material\s*:\s*([^\n]+)\n?/i) ||
+          compact.match(/Specimen\s*:\s*([^\n]+)\n?/i);
+        const specimen = (specimenMatch ? specimenMatch[1] : "unknown").replace(/\s+/g, " ").trim() || "unknown";
+
+        const gradeMatch =
+          compact.match(/\bGrade\b\s*[:\-]?\s*(G[1-4]|low\s*grade|high\s*grade|[IV]{1,3}\/IV)\b/i) ||
+          compact.match(/\bFuhrman\s+Nuclear\s+Grade\b\s*[:\-]?\s*([^\n.]+)/i);
+        const grade = (gradeMatch ? gradeMatch[1] : "unknown").replace(/\s+/g, " ").trim() || "unknown";
+
+        const tnmMatches = Array.from(compact.matchAll(/\b(pT\d[a-z]?|T\d[a-z]?|pN\d[a-z]?|N\d[a-z]?|pM\d[a-z]?|M\d[a-z]?)\b/g)).map((m) => m[1]);
+        const staging = tnmMatches.length ? Array.from(new Set(tnmMatches)).join(" ") : "unknown";
+
+        const diagSentences = diagnosisBlock
+          ? diagnosisBlock.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean)
+          : [];
+
+        const diagnosisLike = diagSentences
+          .filter((s) => /(carcinoma|adenocarcinoma|sarcoma|lymphoma|melanoma|leukemia|hepatocellular|glioblastoma|papillary|squamous)/i.test(s))
+          .slice(0, 5);
+
+        const keyFindings = [];
+        const fields = [
+          /Tumor\s+Type\s*:\s*([^\n.]+)/i,
+          /Tumor\s+Size\s*:\s*([^\n.]+)/i,
+          /Surgical\s+Margins?\s*:\s*([^\n.]+)/i,
+          /Lymph\s+Nodes?\s*:\s*([^\n.]+)/i,
+        ];
+        for (const re of fields) {
+          const m = compact.match(re);
+          if (m && m[0]) keyFindings.push(m[0].replace(/\s+/g, " ").trim());
+        }
+
+        const evidenceQuotes = [];
+        if (diagnosisBlock) evidenceQuotes.push(`DIAGNOSIS: ${diagnosisBlock}`.slice(0, 600));
+        if (staging !== "unknown") evidenceQuotes.push(`STAGING: ${staging}`.slice(0, 120));
+        if (grade !== "unknown") evidenceQuotes.push(`GRADE: ${grade}`.slice(0, 120));
+
+        return {
+          diagnoses: diagnosisLike.length ? diagnosisLike : (diagnosisBlock ? [diagnosisBlock.slice(0, 200)] : []),
+          key_findings: keyFindings,
+          grade,
+          staging,
+          specimen,
+          evidence_quotes: evidenceQuotes,
+        };
+      }
+
+      async function callChatCompletionsOnce(apiBaseUrl, task, reportText) {
+        const payload = {
+          model: "gpt-3.5-turbo",
+          messages: buildMessages(task, reportText),
+          temperature: task === "cancer_type" ? 0.0 : 0.3,
+          top_p: 1.0,
+          stream: false,
+        };
+
+        let resp;
+        try {
+          resp = await fetch(apiBaseUrl + "/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        } catch (e) {
+          const isFile = typeof location !== "undefined" && location.protocol === "file:";
+          const tips = [
+            `Network error: ${String(e)}`,
+            "",
+            "Checklist:",
+            `1) Is the API server running at ${apiBaseUrl}? Try opening ${apiBaseUrl}/docs`,
+            "2) If you launched demo via file://, use a local web server instead (some browsers block file -> http requests)",
+            "3) If API requires API_KEY, add Authorization header in the demo (not enabled by default here)",
+          ];
+          const msg = tips.join("\n");
+          if (isFile) {
+            return { ok: false, error: msg, meta: "Tip: run `python -m http.server 5173` in the demo folder, then open http://localhost:5173/" };
+          }
+          return { ok: false, error: msg };
+        }
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          return { ok: false, error: text || ("HTTP " + resp.status) };
+        }
+
+        const data = await resp.json();
+        const content = data?.choices?.[0]?.message?.content ?? "";
+        const usage = data?.usage
+          ? `tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}`
+          : "";
+        const meta = [data?.model ? `api_model=${data.model}` : "", usage].filter(Boolean).join(" | ");
+        return { ok: true, content, meta };
+      }
+
+      // Report generation is deterministic (rules + formatting) to keep speed and stability on Mac.
+
+      async function callChatCompletions() {
+        const apiBaseUrl = apiBaseUrlEl.value.trim().replace(/\/+$/, "");
+        const inputMode = inputModeEl.value;
+        let reportText = reportTextEl.value.trim();
+
+        if (!apiBaseUrl) {
+          alert("API Base URL 不能为空");
+          return;
+        }
+        if (!reportText) {
+          alert("请粘贴报告文本");
+          return;
+        }
+
+        outputEl.textContent = "Running...";
+        metaEl.textContent = "";
+
+        if (inputMode === "single") {
+          const cls = await callChatCompletionsOnce(apiBaseUrl, "cancer_type", reportText);
+          if (!cls.ok) {
+            outputEl.textContent = cls.error || "Request failed";
+            metaEl.textContent = cls.meta || "";
+            return;
+          }
+          const analysis = extractAnalysisFromText(reportText);
+          outputEl.textContent = renderMarkdownReport("Patient 1", cls.content, analysis);
+          metaEl.textContent = cls.meta || "";
+          return;
+        }
+
+        const formatted = autoSplitToMulti(reportText);
+        if (formatted) {
+          reportText = formatted;
+          reportTextEl.value = formatted;
+          exampleHintEl.textContent = "Auto formatted: split into multiple cases";
+        }
+
+        const blocks = splitMultiInput(reportText);
+        if (blocks.length <= 1) {
+          outputEl.textContent =
+            "多条模式需要分隔符。\n\n示例：\n=== Patient 1 ===\n<report text>\n=== Patient 2 ===\n<report text>\n";
+          return;
+        }
+
+        const parts = [];
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          outputEl.textContent = `Running... (${i + 1}/${blocks.length})`;
+          const cls = await callChatCompletionsOnce(apiBaseUrl, "cancer_type", b.text);
+          const code = cls.ok ? cls.content : "unknown";
+          const analysis = extractAnalysisFromText(b.text);
+          parts.push(renderMarkdownReport(b.title, code, analysis));
+        }
+        outputEl.textContent = parts.join("\n\n---\n\n");
+      }
+
+      async function loadRandomTCGA() {
+        const apiBaseUrl = apiBaseUrlEl.value.trim().replace(/\/+$/, "");
+        if (!apiBaseUrl) {
+          alert("API Base URL 不能为空");
+          return;
+        }
+        const n = inputModeEl.value === "multi" ? 3 : 1;
+        outputEl.textContent = "Loading random TCGA report...";
+        metaEl.textContent = "";
+        exampleHintEl.textContent = "";
+
+        let resp;
+        try {
+          resp = await fetch(apiBaseUrl + `/demo/random_report?n=${n}`, { method: "GET" });
+        } catch (e) {
+          outputEl.textContent = `Network error: ${String(e)}\n\nTry opening ${apiBaseUrl}/docs`;
+          return;
+        }
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          outputEl.textContent = text || ("HTTP " + resp.status);
+          return;
+        }
+
+        const data = await resp.json();
+        const reports = Array.isArray(data?.reports) ? data.reports : [];
+        if (!reports.length) {
+          outputEl.textContent = "No reports returned.";
+          return;
+        }
+
+        if (inputModeEl.value === "single") {
+          reportTextEl.value = String(reports[0]?.text || "");
+          exampleHintEl.textContent = `Loaded: TCGA ${String(reports[0]?.patient_filename || "")}`.trim();
+        } else {
+          const blocks = reports
+            .map((r, idx) => `=== Patient ${idx + 1} (${String(r?.patient_filename || "unknown")}) ===\n${String(r?.text || "")}`)
+            .join("\n\n");
+          reportTextEl.value = blocks;
+          exampleHintEl.textContent = `Loaded: ${reports.length} random TCGA reports (multi mode)`;
+        }
+
+        outputEl.textContent = "";
+      }
+
+      document.getElementById("runBtn").addEventListener("click", () => {
+        callChatCompletions().catch((e) => {
+          outputEl.textContent = String(e);
+        });
+      });
+
+      document.getElementById("randomBtn").addEventListener("click", () => {
+        loadRandomTCGA().catch((e) => {
+          outputEl.textContent = String(e);
+        });
+      });
+
+      document.getElementById("clearBtn").addEventListener("click", () => {
+        reportTextEl.value = "";
+        exampleHintEl.textContent = "";
+        outputEl.textContent = "";
+        metaEl.textContent = "";
+      });
+    </script>
+  </body>
+</html>

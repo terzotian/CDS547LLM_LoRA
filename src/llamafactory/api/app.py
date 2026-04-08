@@ -14,6 +14,9 @@
 
 import asyncio
 import os
+import csv
+import random
+from pathlib import Path
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import Annotated
@@ -79,9 +82,66 @@ def create_app(chat_model: "ChatModel") -> "FastAPI":
     api_key = os.getenv("API_KEY")
     security = HTTPBearer(auto_error=False)
 
+    tcga_cache: list[dict[str, str]] | None = None
+
     async def verify_api_key(auth: Annotated[HTTPAuthorizationCredentials | None, Depends(security)]):
         if api_key and (auth is None or auth.credentials != api_key):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key.")
+
+    def _load_tcga_reports() -> list[dict[str, str]]:
+        nonlocal tcga_cache
+        if tcga_cache is not None:
+            return tcga_cache
+
+        csv_path_env = os.getenv("DEMO_TCGA_CSV_PATH")
+        candidates = []
+        if csv_path_env:
+            candidates.append(Path(csv_path_env))
+
+        candidates.append(Path.cwd() / "data" / "TCGA_Reports.csv")
+        candidates.append(Path.cwd().parent / "data" / "TCGA_Reports.csv")
+
+        csv_path = next((p for p in candidates if p.exists()), None)
+        if csv_path is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="TCGA_Reports.csv not found. Set DEMO_TCGA_CSV_PATH or place it under ./data or ../data.",
+            )
+
+        rows: list[dict[str, str]] = []
+        with csv_path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+            reader = csv.DictReader(f)
+            if "text" not in (reader.fieldnames or []):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid TCGA_Reports.csv schema.")
+
+            for r in reader:
+                text = (r.get("text") or "").strip()
+                if not text:
+                    continue
+                rows.append(
+                    {
+                        "patient_filename": (r.get("patient_filename") or "").strip(),
+                        "text": text,
+                    }
+                )
+
+        if not rows:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No usable rows found in TCGA_Reports.csv.")
+
+        tcga_cache = rows
+        return tcga_cache
+
+    @app.get(
+        "/demo/random_report",
+        status_code=status.HTTP_200_OK,
+        dependencies=[Depends(verify_api_key)],
+    )
+    async def demo_random_report(n: int = 1):
+        if n < 1 or n > 5:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="n must be between 1 and 5.")
+        rows = _load_tcga_reports()
+        picked = random.sample(rows, k=n) if n <= len(rows) else rows
+        return {"reports": picked}
 
     @app.get(
         "/v1/models",
