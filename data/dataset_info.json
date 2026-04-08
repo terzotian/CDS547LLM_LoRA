@@ -635,11 +635,20 @@
       "prompt": "text"
     }
   },
+  "tcga_reports": {
+    "file_name": "tcga_reports.txt",
+    "columns": {
+      "prompt": "text"
+    }
+  },
   "c4_demo": {
     "file_name": "c4_demo.jsonl",
     "columns": {
       "prompt": "text"
     }
+  },
+  "tcga_cancer_type": {
+    "file_name": "tcga_cancer_type_alpaca.json"
   },
   "refinedweb": {
     "hf_hub_url": "tiiuae/falcon-refinedweb",

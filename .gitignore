@@ -178,6 +178,13 @@ saves/
 output/
 outputs/
 wandb/
+wandb_runs/
+wandb_cache/
+wandb_config/
 swanlog/
 generated_predictions.jsonl
 predictions_score.json
+data/tcga_reports.txt
+data/tcga_cancer_type_alpaca.json
+data/medical_demo.jsonl
+examples/course_medical_lora/
